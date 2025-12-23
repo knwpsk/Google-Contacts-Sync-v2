@@ -1,0 +1,75 @@
+function generateNewSyncToken() {
+  // to be used after Sync Client Init, so that on the first "production" run of Get Updated Contacts, it doesn't think "every" contact has been updated.
+  // this takes 35 seconds when I have 4900 contacts, using pagesize 500; each page takes about 3-4 seconds.
+  // takes 34 seconds with pagesize 1000.
+  // from Declarations: myUserProperties (object), testMode (boolean), syncFileSpreadsheet (file)...
+
+  Logger.log("Fn generateNewSynctoken");  
+
+  if(! initialization()){
+    Logger.log("Initialization returned false. Setting trigger to try this function again in 5 mins.");
+    createTriggerSoon("generateNewSyncToken",timeBetweenFunctions);
+    return;
+  }
+  
+  var getNewSynctokenPageSize = 1000;
+
+  var tempSyncToken;
+  var tempPageToken;
+  
+  do {
+    try {
+      // refreshedSyncToken = false;
+      var connections = People.People.Connections.list('people/me', {
+        pageToken: tempPageToken,
+        requestSyncToken: true,
+        pageSize: getNewSynctokenPageSize,
+        personFields: "emailAddresses",
+        sources: ["READ_SOURCE_TYPE_CONTACT"]
+      });
+      // personFields here is just a very small "list" to keep the query small/quick.
+      Logger.log ("     A page of connections fetched.");
+      tempPageToken = connections.nextPageToken;
+      tempSyncToken = connections.nextSyncToken;
+    } // end of TRY to get connections
+    catch (e) {
+      MailApp.sendEmail({
+        to: statusEmail,
+        subject: "Error in GenerateNewSynctoken.",
+        htmlBody: "There was an error while generating a new synctoken for user: " + currUser + ". You must manually restart sync. \nError message: " + e  + "\n\nScript is here: https://script.google.com/home/projects/1GDUMSvG7_Xk8oT_NmGCUAJNgArOvX3PjmzHtQlLRXjxvvT5sQTL-9ugN/edit"
+      })
+      deleteAllTriggers();
+      Throw ("Error in People API call. Sent warning email. Error msg: " +e);
+    }  // end of Catch(error)
+  Logger.log ("     End of fetch loop. SyncToken: <" + tempSyncToken + ">. Pagetoken: <" + tempPageToken + "> should be Undefined in last loop.");
+  showElapsedTime();
+  // If you call the API too many times too quickly, Google throws an error saying "Sync quota exceeded". Put a pause here to avoid it.
+  // Got an error 8/27/2025 in prod run. Created pause of 10 seconds. See if it fixes.
+  Logger.log("    pausing 10 secs");
+  Utilities.sleep(10000); // pause in milliseconds
+} // end of DO section, WHILE is below
+while (tempPageToken);
+
+if(tempSyncToken){
+  // myUserProperties.syncToken = tempSyncToken;
+  // myUserProperties.pageToken = "";
+  var newUserProperties = {"syncToken":tempSyncToken,"pageToken":""};
+  setUserProperties(newUserProperties);
+  // now we set trigger for the next function, which is starts production sync.
+  Logger.log ("   syncToken is saved to User Properties. Setting trigger to start GetUpdatedContacts.");
+  createTriggerSoon("getUpdatedContacts",timeBetweenFunctions);
+} // end IF
+else {
+  // this is BAD - the whole point of running this function was to get a synctoken. Need to alert that it failed.
+  Logger.log("Failed to get a new syncToken!");
+      MailApp.sendEmail({
+        to: statusEmail,
+        subject: "Error in GenerateNewSynctoken.",
+        htmlBody: "Failed to get a new syncToken for user: " + currUser + ". You must manually restart. \n\nScript is here: https://script.google.com/home/projects/1GDUMSvG7_Xk8oT_NmGCUAJNgArOvX3PjmzHtQlLRXjxvvT5sQTL-9ugN/edit"
+      });
+  deleteAllTriggers();
+  throw("Failed to get a new synctoken.");
+} // end ELSE
+Logger.log ("   End of generateNewSyncToken.");
+
+}
