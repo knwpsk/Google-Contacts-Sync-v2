@@ -1,0 +1,41 @@
+/*
+spreadsheet clientSyncTestFile: https://docs.google.com/spreadsheets/d/1w4zG9GK0Z4XK8EmAR9YZgfjcREQR_IcVfWXE243K54E
+
+*/
+
+// **************** DECLARATIONS **********************
+var currUser = Session.getEffectiveUser().getEmail();
+Logger.log(currUser + ": Start of Declarations");
+const testMode = false;
+
+if (testMode){
+  Logger.log ("Running in TEST MODE");
+  // const pageSize = 10; 
+}
+else {
+  Logger.log ("Running in Production Mode");
+  // const pageSize = 500;
+}
+
+const timeBetweenFunctions = 2; // minutes between triggers for sequential functions
+const maxRunTime = 330; // seconds; Max allowed by GAS is 360 seconds in free accounts
+const syncAccounts = ['USER1@gmail.com', 'USER2@gmail.com'];
+const statusEmail = 'TESTADDRESS@gmail.com';
+const syncFileSpreadSheetID = 'GOOGLE_DRIVE_FILE_ID';
+const masterPersonFields = 'addresses,biographies,birthdays,calendarUrls,clientData,emailAddresses,events,externalIds,genders,imClients,interests,locales,locations,memberships,metadata,miscKeywords,names,nicknames,occupations,organizations,phoneNumbers,relations,sipAddresses,urls,userDefined';
+
+var scriptStartTime = new Date();
+// Logger.log('Current user: ' + currUser);
+var currUserNum = syncAccounts.indexOf(currUser);
+var syncTokenCurrent;
+var pageToken;
+var myUserProperties;
+var myScriptProperties;
+var syncFileSpreadSheet;
+var mainSheet;
+var syncAccountSheet;
+var contactGroupsList;
+var isMaintenanceRunning = false;
+
+Logger.log ("End of Declarations.");
+
