@@ -1,0 +1,65 @@
+function syncClientInit() {
+  // initializes gmail accounts (users) into the sync, which are not the Master account
+  // assumes that the sync account has NO contacts in it (or, none that would be in the Master account)
+  // Cannot run this function until Master Init has run/finished in the Master gmail account first.
+  // Reads all Contacts from the Main sheet in the sync file, and inserts them into the gmail Contacts of the sync account
+  // Each time a Contact is added to the gmail account, it is given a Contact ID. That ID is written in the Main sheet, in a column for this account at the far-right column of the data. This creates a mapping of the ID of the contact in this gmail account to the ID of the same Contact in the master account.
+  Logger.log("Starting fn syncClientInit");
+
+  if(! initialization()){
+    Logger.log("Initialization returned false. Retry manually.");
+    return;
+  }
+
+  deleteAllTriggers();
+
+  // check that sync account tab exists in spreadsheet, or create it
+  var syncAccountSheet = syncFileSpreadSheet.getSheetByName(currUser);
+  if (syncAccountSheet) {
+    Logger.log ("Sync account sheet for current user already exists.");
+  }
+  else {
+    Logger.log("Creating sync account sheet.");
+    try {
+      syncFileSpreadSheet.insertSheet(currUser);
+    }
+    catch (e) {
+      throw("Failed to insert new sheet for current user. Exiting script. Error: " + e);
+    } // end catch
+  } // end else
+
+  showElapsedTime();
+  Logger.log ("Calling SpreadsheetToContacts");
+
+  // >>>>>>>>>>>>>>>>> this is the primary function <<<<<<<<<<<<<<<<<<<<<
+  var completedStatus = SpreadsheetToContacts();
+  // >>>>>>>>>>>>>>>>> this is the primary function <<<<<<<<<<<<<<<<<<<<<
+  
+  showElapsedTime();
+  Logger.log ("Returned from SpreadsheetToContacts. CompletedStatus: " + completedStatus);
+  
+  // if SpreadsheetToContacts fully completes, delete all triggers and create new trigger
+  if (completedStatus == "complete") {
+    Logger.log("Initialization is complete for this user. Setting trigger for Sync Contacts.");
+
+    deleteAllTriggers();
+
+    // Generate New SyncToken will loop thru all gmail contacts so that when "this" account tries to sync the first time, it doesn't treat "every" account as "updated". 
+    Logger.log("    Setting trigger to generate a new sync token and then start syncing normally.")
+    createTriggerSoon("generateNewSyncToken",timeBetweenFunctions);
+
+    Logger.log ("   Sending email notice of Client Init completion. ");    
+    MailApp.sendEmail({
+      to: statusEmail,
+      subject: "GAS Contacts Sync is initialized for " + currUser,
+      htmlBody: "The initialization of contact sync for " + currUser + " is complete.  Trigger is set to start syncing. Contacts may be added, modified, or deleted as usual."
+    })
+  } // end IF complete
+  else {
+    // need to trigger another iteration of SyncClientInit > spreadsheet to contacts
+    // this doesn't make People.Connections calls, don't need pageToken etc.
+    // How does it know where to continue on the Main sheet? Does that require any "promise" ?
+    Logger.log("Init is not yet complete. Setting trigger to run Sync Client Init again.");
+    createTriggerSoon("syncClientInit",timeBetweenFunctions);
+  }
+}
