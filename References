@@ -1,0 +1,23 @@
+/*
+https://developers.google.com/people/v1/contacts
+https://developers.google.com/people/api/rest/v1/people.connections/list
+this page is amazing
+https://googleapis.github.io/google-api-python-client/docs/dyn/people_v1.people.connections.html
+
+My notes about the fleapower script:
+https://github.com/fleapower/Google-Script-Contacts-Sync/issues/19
+
+
+When starting a new Connections query and you don't have a synctoken -- i.e. you're going to request All contacts:
+1. First script run will query with no synctoken and no pagetoken.
+Process as many contacts and pages as you can, and save nextPageToken but no synctoken.
+2. Second run of the script will run the same query again, with no synctoken still, but this time populate pagetoken.
+3. Keep iterating the script until you get no nextpagetoken and you do get a nextSyncToken. Now you know you've finished all Contacts.
+
+Now for future syncs, you want to only get updated contacts. So:
+4. On the first run, populate syncToken (with nextSyncToken value from previous), and no pageToken.
+5. On iterations, use the same syncToken and the saved pageToken.
+
+
+
+*/
