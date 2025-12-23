@@ -1,0 +1,12 @@
+This repo uses the same basic construct as fleapower's original, with a lot of changes.
+Here's the original, with my appreciation!
+https://github.com/fleapower/Google-Script-Contacts-Sync
+
+In this refactored version:
+- No longer uses a file in Google Drive to keep the sync token. Stores it to the Script Properties instead.
+- Adds a lot of error handling
+- Separates functions into separate jobs triggered separately
+- Adds capability to use recurring triggers for some functions that could take a long time if there are many contacts to update
+- (Admin point: there are several code files, which made it easier for me to manage. Of course that's not necessary and one could combine them all into one file.)
+- Enhanced how the script manages the sync token and its age. Proactively renews it if the google 7-day timeout is approaching. 
+- Daily Maintenance has a check to ensure that "something" is changed recently, or warns if not. (If nothing has been changed in one of your sync accounts, it could be an indication that a process failed without warning and you need to re-trigger it to kickstart. I've been finding more often lately that some Google Apps Scripts fail not do to your code, but due to google platform issues, and these can't be trapped and handled in code.) 
