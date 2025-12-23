@@ -1,0 +1,70 @@
+function dailyMaintenance() {
+  Logger.log("dailyMaintenance")
+  var rowsDeleted = 0;
+
+  if(! initialization()){
+    Logger.log("Initialization returned false. Setting trigger to try this function again in 5 mins.");
+    createTriggerSoon("dailyMaintenance",timeBetweenFunctions);
+    return;
+  }
+  
+  setScriptProperties({"isMaintenanceRunning":"1"}); // all other functions for all users check this value before running.
+  // keep user triggers from running
+  // note this only deletes triggers for current user, not all users.
+  deleteAllTriggers();
+
+  // delete any deleted contact rows from spreadsheet with "deleted":"true
+  var column = 15; // 15th column is where '"delete": true' is stored
+  var deleteTrueColumns = mainSheet.getRange(1, column, mainSheet.getLastRow()).getValues()
+  var dateArray = new Array();
+  var contactRows = mainSheet.getDataRange().getValues();
+
+  for (var i = deleteTrueColumns.length - 1; i > 0; i--) { // going thru all rows in the Main sheet
+    for (var j = 0; j < deleteTrueColumns[i].length; j++) {
+      if (deleteTrueColumns[i][j].includes("\"deleted\":true")) {  // checking each row to see if the metadata says "deleted"
+        // HERE: this appears to check every cell in every row for the text "deleted:true"
+        // can we not check the specific Metadata field instead?
+        dateArray = [];
+        for (var s = 0; s < syncAccounts.length; s++) {
+          if (contactRows[i][(s * 2) + 26].length > 0) { // if update time is missing, then don't add it
+            dateArray.push(contactRows[i][(s * 2) + 26])
+          }
+        }
+        var oldestUpdate = new Date(Math.min.apply(null, dateArray));
+        var newestUpdate = new Date(Math.max.apply(null, dateArray));
+        // only delete if all update times are the same or missing (they've either all been deleted or they've never been added)
+        if (newestUpdate.toString() == oldestUpdate.toString()) {
+          mainSheet.deleteRow(i + 1);
+          rowsDeleted++;
+        } // end IF
+      } // end IF deleted is true
+    } // end FOR j looping thru columns
+  } // end FOR i
+  Logger.log("     Rows deleted: " + rowsDeleted)
+
+  // adding 12/2/2025
+  // check that all sync clients have updated "something" in the main sheet lately, or else they may have failed...
+  Logger.log("   Checking that all sync accounts are still running scripts ok...");
+  var currentDate = new Date();
+  for (var i = 0; i<syncAccounts.length; i++){ // for each sync Account (user)
+    var latestUpdate = getLastUpdateForAccount(0);
+    // var dateDiff = Math.floor((currentDate - latestUpdate)/60/60/24/1000) ; // this rounds it to an integer; re-enable this after testing.
+    var dateDiff = (currentDate - latestUpdate)/60/60/24/1000 ;
+    Logger.log ("Last update datetime for sync account " + i + " was: " + latestUpdate);
+    if (dateDiff > 03){ // if no contact has been updated on the Main sheet for more than N days in this sync account, notify me
+      MailApp.sendEmail({
+        to: statusEmail,
+        subject: "Stale Contact Data, script may be failing.",
+        htmlBody: "In sync account " + i + " the latest Contact change timestamp in the main sheet is " + latestUpdate + ", " + dateDiff + " days ago. \nYou may need to check for script failures.\nScript is here:\n https://script.google.com/home/projects/1GDUMSvG7_Xk8oT_NmGCUAJNgArOvX3PjmzHtQlLRXjxvvT5sQTL-9ugN/edit"
+      })
+    } // end IF dateDiff>3 days
+  } // end FOR
+
+
+  // recreate trigger for master account
+  createTriggerSoon("getUpdatedContacts",timeBetweenFunctions); 
+  // createDailyMaintenanceTrigger(); // this one doesn't get deleted so I don't need to add it back
+
+  setScriptProperties({"isMaintenanceRunning":"0"});
+
+} // end fn DailyMaintenance
