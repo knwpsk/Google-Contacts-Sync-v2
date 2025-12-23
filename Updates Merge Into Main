@@ -1,0 +1,148 @@
+
+function updatesMerge() {
+  // find updated contacts that were written to the sync account tab in the sync file, by the previous function (get updated contacts)
+
+  Logger.log("fn UpdatesMerge");
+  const tooManyUpdates = 5000;
+
+  if(isMaintenanceRunning){
+    Logger.log("DailyMaintenance function is running. Set a trigger to try this again in a few minutes.");
+    createTriggerSoon("updatesMerge",timeBetweenFunctions);
+    return;
+  }
+
+  if(! initialization()){
+    Logger.log("Initialization returned false. Setting trigger to try this function again in 5 mins.");
+    createTriggerSoon("updatesMerge",timeBetweenFunctions);
+    return;
+  }
+
+  var deletedSheet;
+  var dateArray = new Array();
+  var column = (currUserNum + 1) * 2 + 24; //column Index   
+  var columnValues2D = mainSheet.getRange(1, column, mainSheet.getLastRow()).getValues()
+  var columnValues = String(columnValues2D).split(","); // convert to single dimension array
+
+  if (syncAccountSheet.getLastRow() > 0) {
+
+    if(syncAccountSheet.getLastRow() > tooManyUpdates) {
+
+      MailApp.sendEmail({
+        to: statusEmail,
+        subject: "Contacts Sync error - too many rows!",
+        htmlBody: "There are over " + tooManyUpdates + " rows in the sync account tab. Please check your contacts."  
+      })
+      throw('     Over " + tooManyUpdates + " rows in the Sync Account tab, something seems wrong. Email warning sent.');
+
+    } // end IF getLastRow > tooManyUpdates
+    else {
+      Logger.log("     Sync Account tab has N rows to merge into main tab: " + syncAccountSheet.getLastRow()) // KNW 5/2/2024
+    } // end ELSE getlastrow > tooManyUpdates
+
+    var myUpdates = new Array();
+    myUpdates = syncAccountSheet.getDataRange().getValues();
+
+    Logger.log('     Got update rows from sync account tab');
+
+    var c = 0;
+    do {  // loop through all rows in myUpdates array; but quit if the loop execution time is running too long.
+      var updateTime = new Date();
+      // find contact ID in Main spreadsheet which matches updated contact from Contacts in the source account tab
+      searchResult = columnValues.indexOf(myUpdates[c][25]); 
+      var resourceName = myUpdates[c].pop();
+      contactArray = myUpdates[c]; // copy the current (updated) contact from the source array into its own array
+
+      if (searchResult != -1) { // i.e. we found the updated contact in the main sheet array using the ID in ResourceName.
+        dateArray = [];
+        for (var i = 0; i < syncAccounts.length; i++) {
+          dateArray.push(mainSheet.getRange(searchResult + 1, (i + 1) * 2 + 25).getValue()) 
+          // get the date of last update from Main sheet, for the row matching the current Contact. Save that date in DateArray... for what purpose??
+        } 
+
+        // HERE: if the contact is being deleted, save the mainSheet data to Deleted sheet first.
+
+        if(contactArray.some(el => el.includes('"deleted":true'))) { // if contactArray has the words "deleted:true"
+          Logger.log("    This contact is being deleted."); 
+
+          // get deletedSheet from the sync file; this is where we will store the deleted contact info
+          try {
+            if(! deletedSheet) {
+              deletedSheet = syncFileSpreadSheet.getSheetByName("deleted");
+            } // end IF
+          } // end try to get Deleted sheet
+          catch(e) {
+            MailApp.sendEmail({
+              to: statusEmail,
+              subject: "Contacts Sync error - failed to find *deleted* sheet.",
+              htmlBody: "Failed to retrieve *deleted* sheet in sync file. Check that it exists, or create it, and then restart function Updates Merge Into Main.\nScript is here: https://script.google.com/home/projects/1GDUMSvG7_Xk8oT_NmGCUAJNgArOvX3PjmzHtQlLRXjxvvT5sQTL-9ugN. \nSheets file is here: https://docs.google.com/spreadsheets/d/" + syncFileSpreadSheetID
+            })
+            throw("Failed to retrieve Deleted sheet.");
+          } // end catch
+
+          try{
+            // HERE 25 is column Y, which omits the people IDs. Makes it harder to understand who is there's no data in the row. Changed it to 29 columns.
+            var deletedContactData = mainSheet.getRange(searchResult + 1,1,1,29).getValues(); // returns an array of rows, in this case with one row.
+            deletedContactData[0].push("Deleted by " + currUser + " on: " + getDate_TimeStringFromDate(new Date())); // adding a datetime to the last column so I know when the contact was removed.
+            deletedSheet.appendRow(deletedContactData[0]);
+            Logger.log("    Copied contact info to Deleted sheet.");
+          } // end try block
+          catch(e) {
+            Logger.log("Failed to move contact to Deleted sheet. Error was: " + e);
+            Logger.log("Will continue looping through all Main sheet rows marked for deletion.");
+          } // end catch block
+        } // end IF person is being deleted
+
+        // Now update contact on Main sheet with the data from Sync account sheet.
+        mainSheet.getRange(searchResult + 1, 1, 1, 25).setValues([contactArray]);
+        mainSheet.getRange(searchResult + 1, (currUserNum + 1) * 2 + 25).setValue(updateTime);
+        Logger.log("     Task " + c + ": Updated " + resourceName + " on Main sheet.")
+
+      }
+      else {
+        // Add contact
+
+        // append array with individual user's resourceNames
+        var resourceNamesArray = [];
+        for (var i = 0; i < syncAccounts.length; i++) {
+          if (currUser == syncAccounts[i]) {
+            resourceNamesArray = resourceNamesArray.concat([resourceName, updateTime]);
+          }
+          else {
+            resourceNamesArray = resourceNamesArray.concat(["", ""]);
+          }
+        }
+        // add contact to end of sheet
+        var appendArray = contactArray.concat(resourceNamesArray);
+        mainSheet.appendRow(appendArray);
+        Logger.log("     Task " + c + ": Added " + resourceName + " to Main spreadsheet.")
+      }
+      c++
+    } // end of DO WHILE loop
+    while ((c < myUpdates.length) && ((new (Date) - scriptStartTime) / 1000 < maxRunTime))
+    if ((new (Date) - scriptStartTime) / 1000 > maxRunTime) {Logger.log("     Ran out of time.")}
+  } // end IF the sheet has rows -- i.e. if there are updates for contacts in this account
+  else {
+    Logger.log('     Spreadsheet has zero rows, no updates from contacts in this account.');
+  } // end else
+
+  if (c == syncAccountSheet.getLastRow()) {
+    Logger.log ("   All updates processed, clearing sync account sheet all rows.");
+    syncAccountSheet.clear(); // c means the count of contact updates that have been done; here we've completed all of them so we can remove them all from the queue in the spreadsheet
+  }
+  else if (c) {
+    Logger.log ("   " + c + " updates completed, clearing that many rows from sync account sheet.");
+    syncAccountSheet.deleteRows(1, c); // didn't finish all contacts updates on this run, so delete just the ones we did, and keep the rest on the sheet for next run.
+    // need to trigger UpdatesMerge to run again.
+    Logger.log ("   Created trigger to run updatesMerge again in 1 minute.");
+    deleteAllTriggers();
+    createTriggerSoon(updatesMerge,timeBetweenFunctions);
+    showElapsedTime();
+    Logger.log ("End fn updatesMerge");
+    return;
+  }
+  Logger.log("    Creating trigger to run updateContactsFromMain in 1 min.");
+  deleteAllTriggers();
+  createTriggerSoon("updateContactsFromMain",timeBetweenFunctions);
+  showElapsedTime();
+  Logger.log ("End fn updatesMerge");
+} // end fn updatesMerge
