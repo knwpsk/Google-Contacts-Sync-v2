@@ -1,0 +1,33 @@
+function updateContactsFromMain() {
+  // just a wrapper function for SpreadsheetToContacts, so that I can use it for either Sync Client Init or for daily sync, and call the right function or trigger after.
+  // calls SpreadsheetToContacts
+  // When STC returns, if complete, then set trigger for GetUpdated (start of the cycle)
+  // if STC isn't complete, set trigger to run this function again immediately.
+  Logger.log("Start fn updateContactsFromMain");
+
+  if(isMaintenanceRunning){
+    Logger.log("DailyMaintenance function is running. Set a trigger to try this again in a few minutes.");
+    createTriggerSoon("updateContactsFromMain",timeBetweenFunctions);
+    return;
+  }
+
+  // Don't need to run Intialization() now -- it already runs in Spreadsheet to Contacts.
+  
+  var completedStatus = SpreadsheetToContacts();  
+    
+  Logger.log ("   Returned from SpreadsheetToContacts. CompletedStatus: " + completedStatus);
+  showElapsedTime();
+  
+  // if SpreadsheetToContacts fully completes, delete all triggers and create new trigger
+  if (completedStatus == "complete") {
+    Logger.log("    Setting trigger to restart the sync cycle with getUpdatedContacts.");
+    deleteAllTriggers();
+    createTriggerSoon("getUpdatedContacts",60);
+  } // end IF completedstatus
+  else {
+    Logger.log("    Setting trigger to continue updateContactsFromMain in a minute.");
+    deleteAllTriggers();
+    createTriggerSoon("updateContactsFromMain",timeBetweenFunctions);
+  } // end ELSE completedstatus
+  Logger.log("End fn updateContactsFromMain");
+}
