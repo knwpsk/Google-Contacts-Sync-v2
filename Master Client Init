@@ -1,0 +1,157 @@
+function masterClientInit() {
+  Logger.log("Starting fn masterClientInit");
+
+  if(! initialization()){
+    Logger.log("Initialization returned false. Retry manually.");
+    return;
+  }
+
+  if(mainSheet){
+    Logger.log("MainSheet found.");
+  }
+  else {
+    Logger.log("MainSheet not found, creating it.");
+    syncFileSpreadSheet.insertSheet("MainSheet")
+  }
+
+  // assumes global myUserProperties, syncFileSpreadSheet, mainSheet
+  const masterClientInitPageSize = 1000; // this whole job does fine with 1000, taking several iterations. 
+  var updateTime = new Date();
+  var allContactsArray = new Array();
+  var appendArray = new Array();
+  var n=0;
+
+  // check that sync account tab exists in spreadsheet, or create it
+  if (syncFileSpreadSheet.getSheetByName(currUser)) {
+    Logger.log ("Sync account sheet for current user already exists.");
+  }
+  else {
+    try {
+      syncFileSpreadSheet.insertSheet(currUser);
+    }
+    catch (e) {
+      throw("Failed to insert new sheet for current user. Exiting script. Error: " + e);
+    } // end catch
+  } // end else
+
+  var tempPageToken = myUserProperties.pageToken;
+  // var tempSyncToken = myUserProperties.syncToken;
+  var tempSyncToken; // syncToken should never be present, and never used, during MasterInit. It will only be used for later syncs. Only pageToken will be used on following iterations (triggers) of master init.
+
+  var tempParams = {
+    pageSize: masterClientInitPageSize,
+    personFields: masterPersonFields,
+    requestSyncToken: true,
+    sources: ["READ_SOURCE_TYPE_CONTACT"] // we can't update DOMAIN or PROFILE so CONTACT source is specified (must be consisten through all other calls or sync tokens won't work)
+  }
+
+  // on first run of MasterInit there will be no pageToken. On subsequent iterations of MasterInit there will be a pageToken.
+  if (tempPageToken) {
+    tempParams.pageToken = tempPageToken;
+  }
+  showElapsedTime();
+  Logger.log("Getting a page of Connections with this set of params: ");
+  Logger.log(tempParams);
+  
+  try {
+    var myConnections = People.People.Connections.list('people/me', tempParams);
+  }
+  catch (e) {
+    // HERE could add some logic to read e.message and react automatically.
+    throw("Error retrieving Connections from API. It should be OK to restart Master Init. Error was: " + e);
+  }
+
+  showElapsedTime();
+  Logger.log("Got connections, looping through and adding them to array.");
+
+/////////////////////////////// in Fleapower this part is in a Do While loop. I'm not doing that, will re-trigger MasterInit instead.
+  myConnections.connections.forEach(function (person) {
+    var contactArray = [person.addresses, person.biographies, person.birthdays, person.calendarUrls, person.clientData, person.emailAddresses, person.events, person.externalIds, person.genders, person.imClients, person.interests, person.locales, person.locations, person.memberships, person.metadata, person.miscKeywords, person.names, person.nicknames, person.occupations, person.organizations, person.phoneNumbers, person.relations, person.sipAddresses, person.urls, person.userDefined];
+
+    // remove ID tags and stringify
+    contactArray = RemoveIDandStringify(contactArray)
+
+    // append array with individual user's resourceNames
+    var resourceNamesArray = [];
+    for (var i = 0; i < syncAccounts.length; i++) {
+      if (currUser == syncAccounts[i]) {
+        resourceNamesArray = resourceNamesArray.concat([person.resourceName, updateTime]);
+      }
+      else {
+        resourceNamesArray = resourceNamesArray.concat(["", 0]);
+      }
+    }
+
+    // add Contact Groups to array to be saved in spreadsheet
+    var contactGroups = []
+    for (var i = 0; i < person.memberships.length; i++) {
+      for (var j = 0; j < contactGroupsList.length; j++) {
+        if (person.memberships[i].contactGroupMembership.contactGroupResourceName == contactGroupsList[j][1]) {
+          contactGroups[i] = contactGroupsList[j][0]
+        }
+      }
+    }
+    contactArray[13] = contactGroups.join(",") // 14th column is where memberships are; will need to be changed if script updated
+
+    // complete apendArray
+    appendArray = contactArray.concat(resourceNamesArray);
+
+    // append allContactsArray with new contact
+    allContactsArray[n] = appendArray;
+    // Logger.log('     added Contacts to memory array: ' + n);
+    n++;
+
+  }); // end of connections.connections.forEach()
+
+  showElapsedTime();
+  Logger.log("Page of connections added to array. Writing array to Main sheet.");
+  // write entire contacts array to Main tab of spreadsheet
+  
+  var nextRow = 0
+  try{
+    nextRow = mainSheet.getLastRow();
+  }
+  catch{};
+  if(nextRow === 0) {nextRow = 1};
+  
+  try {
+    mainSheet.getRange(nextRow,1,allContactsArray.length,appendArray.length).setValues(allContactsArray);
+  }
+  catch(e) {
+    throw("Error trying to write contact info to Main sheet. If it's just a platform error you can continue (re-run MasterInit without changing anything). Error was: " + e);
+  }
+  showElapsedTime();
+  Logger.log("Page of connections added to Main sheet.");
+
+  /*
+  Quick reminders about syncToken, nextSyncToken, and pageToken:
+  - When running Master Init, we will never submit a syncToken to the fetch. We are intentionally pulling ALL contacts.
+  - When running the first iteration of Master Init, we will not submit a pageToken. We're pulling the first page of results.
+  - At the end of Master Init, if there is a nextPageToken value, this means there are more pages to go, and we have not finished yet. We need to save that pageToken to UserProperties so it's available on the next trigger of MasterInit. There will not be any value for nextSyncToken until we reach the last page of data.
+  - At the end of Master Init, if there is a connections.nextSyncToken value returned, this means we have reached the end of the Contacts data set. Master Init is finished.
+  */
+
+  tempSyncToken = myConnections.nextSyncToken; // API says nextSyncToken is only available on the last page. Could maybe also check IF NOT (pagetoken) ?
+  if (tempSyncToken){
+    // We reached the end of the Connections. MasterInit should be finished, don't need to call it again. Do other stuff.
+    myUserProperties.syncToken = tempSyncToken;
+    myUserProperties.pageToken = '';
+    setUserProperties(myUserProperties);
+    tempPageToken = null
+    Logger.log("Reached end of Connections. Setting trigger to run regular ClientSync. Saved properties for next time are: ");
+    Logger.log(myUserProperties);
+    createDailyMaintenanceTrigger();
+    createTriggerSoon("getUpdatedContacts",60);
+  } // end IF mynextsynctoken
+  else {
+    tempPageToken = myConnections.nextPageToken;
+    myUserProperties.pageToken = tempPageToken;
+    setUserProperties(myUserProperties);
+    // Not at the end of Connections yet. Need to trigger MasterInit again.
+    Logger.log("    Not at end of Connections yet. Setting next MasterClientInit trigger.")
+    createTriggerSoon("masterClientInit",timeBetweenFunctions);
+  } // end ELSE
+
+  showElapsedTime();
+  Logger.log("Ending fn masterClientInit");
+}
