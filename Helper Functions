@@ -1,0 +1,249 @@
+function getLastUpdateForAccount(paramUserNum){
+  // find the latest update date/time in the Main sheet, for all contact rows, for one sync account
+  var lastRow = mainSheet.getLastRow();
+  var columnNumber = paramUserNum*2 + 27; // column AB for the first sync account; column AD for the second...
+
+  var allDatesArray = mainSheet.getRange(1,columnNumber,lastRow).getValues();
+  var allDatesArrayClean = allDatesArray.flat().filter(v => v instanceof Date); // Flattens, and filters out any values that aren't date/times.
+  var maxDate = new Date(Math.max.apply(null,allDatesArrayClean)); // you can't put an array in "max" fn, so "apply" spreads the array into a list.
+  return maxDate;
+}
+
+function pauseAllProcessing(){
+  setScriptProperties({"isMaintenanceRunning":"1"}); // all other functions for all users check this value before running.
+  // by setting this property, all other functions will divert processing.
+}
+
+function initialization(){
+  Logger.log("  Starting Initialization.");
+  contactGroupsList = getContactGroupsList();
+
+  try {
+    myUserProperties = getUserProperties();
+    myScriptProperties = getScriptProperties();
+    if(myScriptProperties.isMaintenanceRunning ==="1"){
+      isMaintenanceRunning = true;
+    }
+    else{
+      isMaintenanceRunning = false;
+    }
+  }
+  catch (e) {
+    Logger.log("  Failed to get user or script properties. Intialization returning false. Error was " + e);
+    return false
+  }
+
+  try{
+    syncFileSpreadSheet = SpreadsheetApp.openById(syncFileSpreadSheetID); // "_Contacts_Sync" spreadsheet
+    mainSheet = syncFileSpreadSheet.getSheetByName("MainSheet");
+    syncAccountSheet = syncFileSpreadSheet.getSheetByName(currUser);
+  }
+  catch (e) {
+    Logger.log ("   Sync file not found in google drive or mainSheet tab not found. Initialization returning false. Error was: " + e);
+    return false;
+  }
+  Logger.log("    End of Initialization.")
+  return true;
+} // end fn Initialization
+
+function getContactGroupsList() {
+  Logger.log("      fn getContactGroupsList")
+  var contactGroupsListJSON = People.ContactGroups.list({
+    "groupFields": "name",
+    "pageSize": 1000 // no more than 1000 contact groups
+  })
+  var contactGroupsList = []
+  contactGroupsListJSON.contactGroups.forEach(function (contactGroups) {
+    contactGroupsList.push([contactGroups.name, contactGroups.resourceName])
+  });
+  return (contactGroupsList)
+} // end fun getContactGroupsList
+
+function createTriggerSoon(functionName,numberOfMinutes) {
+  var now = new Date();
+  var oneMinuteFromNow = new Date(now.getTime() + numberOfMinutes * 60 * 1000); // add 1 minute
+  ScriptApp.newTrigger(functionName)
+    .timeBased()
+    .at(oneMinuteFromNow)
+    .create();
+  Logger.log("      createTriggerSoon finished. Function:  " + functionName + " set for " + numberOfMinutes + " minutes.");
+}
+
+function getUserProperties () {
+  var tempUserProperties = PropertiesService.getUserProperties();
+  newUserProperties = convertScriptProperties(tempUserProperties);
+  Logger.log("      User properties: ");
+  Logger.log(newUserProperties);
+  return newUserProperties;
+} // end fn getUserProperties
+
+function getScriptProperties() {
+  var tempScriptProperties = PropertiesService.getScriptProperties();
+  var newScriptProperties = convertScriptProperties(tempScriptProperties);
+  Logger.log("      Script properties: ");
+  Logger.log(newScriptProperties);
+  return newScriptProperties;
+} // end fn getScriptProperties
+
+
+function convertScriptProperties(propertiesObj) {
+  // the special "Properties" class doesn't act like a normal Objecct
+  // e.g. it doesn't directly expose its properties, won't respond to object[propertynameVariable] nomenclature, etc.
+  // So, this function accepts a Properties object and converts it to a standard Object to be used more easily in code.
+
+  var newPropertiesObj = {};
+  var userPropsArray = Object.entries(propertiesObj.getProperties());
+  // Logger.log('     Converting user or script Properties Object to standard object with parameter count: ' + userPropsArray.length);
+  for (var k=0; k < userPropsArray.length; k++){
+    newPropertiesObj[userPropsArray[k][0]] = userPropsArray[k][1];
+  }
+  return newPropertiesObj
+}
+
+function getDate_TimeStringFromDate(inputDateObj) {
+  var tempYear = '' + inputDateObj.getFullYear();
+  var tempMonth = '' + (inputDateObj.getMonth()+1);
+  var tempDate = '' + inputDateObj.getDate();
+  var tempHours = '' + inputDateObj.getHours();
+  var tempMinutes = '' + inputDateObj.getMinutes();
+  var tempSecs = '' + inputDateObj.getSeconds();
+  // time zone?  https://attacomsian.com/blog/javascript-current-timezone
+  // var tempDateTimeString = '' + tempYear + tempMonth.padStart(2, '0') + tempDate.padStart(2, '0');
+  var tempDateTimeString = '' + tempYear + "-" + tempMonth.padStart(2, '0')  + "-" + tempDate.padStart(2, '0');
+  // var tempDateTimeString = tempDateTimeString + '_' + tempHours.padStart(2,'0') + tempMinutes.padStart(2,'0') + tempSecs.padStart(2,'0');
+    // I need to change this to the format "2025-08-21T11:00:00-04:00" so that I can easily convert it to Date(input) in other function.
+  var tempDateTimeString = tempDateTimeString + 'T' + tempHours.padStart(2,'0')  + ":" + tempMinutes.padStart(2,'0') + ":" + tempSecs.padStart(2,'0');
+  return tempDateTimeString
+}
+
+function manuallyResetSyncToken(){
+  // used during testing, and to clean up errors.
+  var newPropertiesObject = { 
+  "syncToken" : "MisAuajMJQAAABIIoufGrfCojwMQiLWmyummjwMhN_vhltkRykvsiSasw1UMOiQ2OGFhNDczZC0wMDAwLTI4MTYtODk0Ni1mND",
+  "pageToken" : "",
+  }
+  setUserProperties(newPropertiesObject);
+  Logger.log("SyncToken is reset.");
+
+}
+
+function testSyncTokenDate(lastUpdateTimeString) {
+  var currentDate = new Date();
+  var lastDate = new Date(lastUpdateTimeString);
+  var updateDiff = currentDate - lastDate;
+  // there are 604800000 milliseconds in 7 days.
+  // there are 576000000 in 6 days, 16 hours. Using this for the threshold because I expect to run GetUpdated each hour or so.
+  if(updateDiff > 576000000) {
+  Logger.log("    syncToken approaching expiry. Seconds since last syncToken update: " + updateDiff);
+    return true;
+  }
+  else {
+    Logger.log("    syncToken has ample time to expiry. Seconds since last syncToken update: " + updateDiff);
+    return false;
+  }
+} 
+
+function setUserProperties (propertiesObject) {
+  // expects a standard object that has a simple set of Properties and Values. For example:
+  var tempUserProperties = PropertiesService.getUserProperties();
+  var tempPropKeys = Object.keys(propertiesObject);
+  var updateTime = getDate_TimeStringFromDate(new Date()); 
+  // loop thru each property, and add a meta-property next to it, to record the Date/Time each one was saved. 
+  for(var i=0;i<tempPropKeys.length;i++){
+    var tempPropName = tempPropKeys[i];
+    if(tempPropName.indexOf("_updated")>=0){
+      //PropertiesObject should not include any "xxx_updated" properties, but if it does, don't create an "_updated_updated" property.
+      continue;
+    }
+    var tempPropUpdateName = tempPropName + "_updated";
+    propertiesObject[tempPropUpdateName] = updateTime;
+  } // end FOR loop
+  tempUserProperties.setProperties(propertiesObject);
+} // end fn setUserProperties
+
+function setScriptProperties(propertiesObject) {
+  // same as setUserProperties
+  var tempScriptProperties = PropertiesService.getScriptProperties();
+  var tempPropKeys = Object.keys(propertiesObject);
+  var updateTime = getDate_TimeStringFromDate(new Date()); 
+    // I need to change this to the format "2025-08-21T11:00:00-04:00" so that I can easily convert it to Date(input) in other function.
+  for(var i=0;i<tempPropKeys.length;i++){
+    var tempPropName = tempPropKeys[i];
+    var tempPropUpdateName = tempPropName + "_updated";
+    propertiesObject[tempPropUpdateName] = updateTime;
+  } // end FOR loop
+  tempScriptProperties.setProperties(propertiesObject);
+
+} // end fn setScriptProperties
+
+
+function deleteAllUserProperties() {
+  var tempUserProperties = PropertiesService.getUserProperties();
+  var displayObj = convertScriptProperties(tempUserProperties);
+  Logger.log ("Current User Properties will all be deleted: ");
+  Logger.log (displayObj);
+  tempUserProperties.deleteAllProperties();
+}
+
+function deleteAllTriggers() {
+  // note this only retrieves and deletes triggers for the user running the script.
+  // google API does not give one user access to other users' triggers, not even the owner of the script projectc.
+  Logger.log ("     deleteAllTriggers");
+  var triggers = ScriptApp.getProjectTriggers();
+  for (var i in triggers) {
+    if (triggers[i].getHandlerFunction() != "dailyMaintenance") {
+      ScriptApp.deleteTrigger(triggers[i]); // HERE I should handle errors, although I've only ever had this fail once "service unavailable"
+    }
+  }
+} // end fn deleteAllTriggers 
+
+function createDailyMaintenanceTrigger() {
+  ScriptApp.newTrigger("dailyMaintenance")
+    .timeBased()
+    .atHour(3)
+    .everyDays(1)  // maintenance will run every 24 hours
+    .create();
+} // end fn createDailyMaintenanceTrigger
+
+// function createSyncContactsTrigger() {
+//   ScriptApp.newTrigger("syncContacts")
+//     .timeBased()
+//     // .everyMinutes(10) // contacts will be synced every 10 minutes
+//     .everyMinutes(30) // contacts will be synced every 30 minutes; value must be 1, 5, 10, 30
+//     .create();
+// } // end fn createSyncContactsTrigger **********************************************************************************************************
+
+function checkScriptRuntime() {
+  if((new (Date) - scriptStartTime) / 1000 < maxRunTime) { return true } else { return false }
+}
+
+function showElapsedTime() {
+  executionTime = (new Date() - scriptStartTime) / 1000
+  Logger.log("      Elapsed Time: " + executionTime + " seconds.")
+} // end fn showelapsedTime 
+
+
+function RemoveIDandStringify(contactArray) {
+  // remove ID tags and stringify
+  for (var i = 0; i < contactArray.length; i++) {
+    if (contactArray[i]) {
+      removeID(contactArray[i])
+    }
+    if (contactArray[i]) {
+      contactArray[i] = JSON.stringify(contactArray[i]) //converts a JavaScript object or value into a JSON-formatted string
+    }
+    else {
+      contactArray[i] = {}
+    }
+  }
+  return (contactArray)
+} // end fn 
+
+function removeID(obj) {
+  for (prop in obj) {
+    if (prop === 'id')
+      delete obj[prop];
+    else if (typeof obj[prop] === 'object')
+      removeID(obj[prop]);
+  }
+} // end fn removeID 
