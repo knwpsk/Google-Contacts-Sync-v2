@@ -1,0 +1,198 @@
+function SpreadsheetToContacts() {
+  // takes updates or new contacts from Main sheet (from other accounts) and updates/inserts them in gmail Contacts for this account
+
+  Logger.log("Starting fn SpreadsheetToContacts")
+
+  if(isMaintenanceRunning){
+    Logger.log("DailyMaintenance function is running. Set a trigger to try this again in a few minutes.");
+    createTriggerSoon("SpreadsheetToContacts",timeBetweenFunctions);
+    return;
+  }
+
+  if(! initialization()){
+    Logger.log("Initialization returned false. Setting trigger to try this function again in 5 mins.");
+    createTriggerSoon("SpreadsheetToContacts",timeBetweenFunctions);
+    return;
+  }
+  
+  showElapsedTime();
+  var dateArray = new Array();
+  var allNewMemberships = new Array();
+  var newMembership;
+  var contactRows = mainSheet.getDataRange().getValues();
+
+  for (var i = 0; i < contactRows.length; i++) {
+    try {
+
+      allNewMemberships = [];
+
+      //get latest updateTime for this contact row, from each of the sync accounts (columns AA and AC)
+      dateArray = [];
+      for (var s = 0; s < syncAccounts.length; s++) {
+        dateArray.push(contactRows[i][(s * 2) + 26])
+      }
+      if (!dateArray[currUserNum]) {
+        dateArray[currUserNum] = 0
+      }
+
+      // find which sync account most recently updated this contact row -- which has the max date/time in column AA or AC?
+      var newestUpdate = new Date(Math.max.apply(null, dateArray));
+      var myUpdate = contactRows[i][(currUserNum * 2) + 26]
+
+      //if "this" sync account has never added this contact; OR if another sync account has updated this contact more recently than "this" account -- then "this" account needs to process the update.
+      if (myUpdate == null || newestUpdate > myUpdate) {
+
+        // Delete
+        if (contactRows[i][14].includes("\"deleted\":true")) {
+          try {
+            People.People.deleteContact(contactRows[i][(currUserNum + 1) * 2 + 23]);
+            Logger.log("     Successfully deleted contact " + contactRows[i][(currUserNum + 1) * 2 + 23] + " from Google account.")
+          }
+          catch {
+            Logger.log("     Had to use alternate delete.  " + contactRows[i][(currUserNum + 1) * 2 + 23] + " did not exist.")
+          }
+          mainSheet.getRange(i + 1, (currUserNum + 1) * 2 + 25).setValue(newestUpdate)
+        } // end IF this row is a contact to delete
+
+        else { // Not deleted; Update or Add
+          LabelString = mainSheet.getRange(i + 1, 14).getValue()
+          Labels = LabelString.split(",")
+
+          // Add groups to new/updated contacts groups
+          for (var j = 0; j < Labels.length; j++) {
+            // CHECK IF GROUP/LABEL EXISTS:
+            var groupName = Labels[j];
+            var groupIndex = contactGroupsList.map(data => data[0]).indexOf(groupName);
+
+            // CREATE GROUP/LABEL IF DOESN'T EXIST:
+            if (groupIndex == -1) {
+              var groupResource = {
+                contactGroup: {
+                  name: groupName
+                }
+              }
+              group = People.ContactGroups.create(groupResource);
+              var groupResourceName = group.resourceName;
+              contactGroupsList.push([groupName, groupResourceName])
+              Logger.log("     Created group " + groupName + ".")
+              Utilities.sleep(2000) // 2 second delay. For some reason, Google needs a delay after creating a group before adding a contact or Google can't find the group and will throw an error
+            } // end IF the group/label doesn't yet exist, need to create it
+
+            else { // the group/label already exists.
+              var groupResourceName = contactGroupsList.map(data => data[1])[groupIndex];
+            } // end ELSE
+
+            // ADD GROUP TO MEMBERSHIPS:
+
+            newMembership = {
+              "contactGroupMembership": {
+                "contactGroupResourceName": groupResourceName
+              }
+            }
+
+            allNewMemberships = allNewMemberships.concat(newMembership)
+
+          }
+
+          // now read each cell in this contact row into a Contact object, parsing the cell contents from JSON format.
+          var bodyRequest = {
+            "etag": "",
+            "addresses": JSON.parse(contactRows[i][0]),
+            "biographies": JSON.parse(contactRows[i][1]),
+            "birthdays": JSON.parse(contactRows[i][2]),
+            "calendarUrls": JSON.parse(contactRows[i][3]),
+            "clientData": JSON.parse(contactRows[i][4]),
+            "emailAddresses": JSON.parse(contactRows[i][5]),
+            "events": JSON.parse(contactRows[i][6]),
+            "externalIds": JSON.parse(contactRows[i][7]),
+            "genders": JSON.parse(contactRows[i][8]),
+            "imClients": JSON.parse(contactRows[i][9]),
+            "interests": JSON.parse(contactRows[i][10]),
+            "locales": JSON.parse(contactRows[i][11]),
+            "locations": JSON.parse(contactRows[i][12]),
+            "memberships": allNewMemberships,
+            "metadata": JSON.parse(contactRows[i][14]),
+            "miscKeywords": JSON.parse(contactRows[i][15]),
+            "names": JSON.parse(contactRows[i][16]),
+            "nicknames": JSON.parse(contactRows[i][17]),
+            "occupations": JSON.parse(contactRows[i][18]),
+            "organizations": JSON.parse(contactRows[i][19]),
+            "phoneNumbers": JSON.parse(contactRows[i][20]),
+            "relations": JSON.parse(contactRows[i][21]),
+            "sipAddresses": JSON.parse(contactRows[i][22]),
+            "urls": JSON.parse(contactRows[i][23]),
+            "userDefined": JSON.parse(contactRows[i][24])
+          };
+
+          if ((contactRows[i][(currUserNum + 1) * 2 + 23])) {
+            // Contact exists already, Update Contact from Spreadsheet instead of creating new contact
+            try {
+              // get the contact from Gmail using the known ID, so we can update it.
+              var people = People.People.getBatchGet({
+                resourceNames: [(contactRows[i][(currUserNum + 1) * 2 + 23])],
+                personFields: 'metadata'
+              });
+            } // end TRY getting Contact info from API
+            catch (e) {
+              Logger.log ("   People API threw error trying to retrieve contact by ID: <" + contactRows[i][(currUserNum + 1) * 2 + 23] + ">");
+              Logger.log ("   Can't update this contact. Will continue FOR loop and try it again on next run. Error msg was: " + e);
+            } // end CATCH (error in API call retrieving contact by ID)
+            if (people.responses[0].person) {
+              bodyRequest.etag = people.responses[0].person.etag;
+              var personResourceName = (contactRows[i][(currUserNum + 1) * 2 + 23]);
+              Utilities.sleep(700); // delay is required to not exceed read/write quotas
+              
+              // Calendar URLs is listed as an update field, but it throws an error when included below.
+              People.People.updateContact(bodyRequest, personResourceName, { updatePersonFields: "addresses,biographies,birthdays,clientData,emailAddresses,events,externalIds,genders,imClients,interests,locales,locations,memberships,miscKeywords,names,nicknames,occupations,organizations,phoneNumbers,relations,sipAddresses,urls,userDefined" });
+              Logger.log("     Item " + i + ": Updated in gsuite contact id: " + personResourceName + ".");
+              mainSheet.getRange(i + 1, (currUserNum + 1) * 2 + 25).setValue(newestUpdate) // in Main sheet, sets the date/time that this contact was added or updated in Gmail contacts.
+              Logger.log("    Updated datetime for this contact in Main sheet.");
+            }
+            else {
+              MailApp.sendEmail({
+                to: statusEmail,
+                subject: "Contact Sync Conflict",
+                htmlBody: "Contact " + (contactRows[i][(currUserNum + 1) * 2 + 23]) + " for " + currUser + " has been deleted, but other users have updated the contact's information since it was deleted.  It is recommended you remove this contact from the trash in <" + currUser + ">.  If this contact should be deleted, try again after removing it from the trash."
+              })
+            }
+          } // end IF contactrows (contact) exists, do an update instead of new Contact in gmail);
+          else {
+            try {
+              // New contact in spreadsheet, Add Contact to gmail.
+              var newContact = People.People.createContact(bodyRequest);
+            } // end TRY creating new client
+            catch (e) {
+              Logger.log("    Error trying to create new gmail contact. Error msg: "+ e);
+              Logger.log("    Will skip adding ID to spreadsheet, and return to FOR loop and continue next row. SpreadsheetToContacts should pick up this one on the next run.");
+              MailApp.sendEmail({
+                to: statusEmail,
+                subject: "Error inserting new Contact",
+                htmlBody: "For row  " + i + " of main sheet failed to create a new contact in gmail for " + currUser + ". This is self-correcting. Error message was: " + e
+              }) // end sendmail.
+            } // end catch
+            if(newContact){
+              mainSheet.getRange(i + 1, (currUserNum + 1) * 2 + 24).setValue(newContact.resourceName) // gets the contact ID for the new entry, and adds that ID to the sync account column in the Main mainSheet.
+              mainSheet.getRange(i + 1, (currUserNum + 1) * 2 + 25).setValue(newestUpdate)
+              Logger.log("     Item " + i + ": Created new Google contact and added ID to main sheet: " + newContact.resourceName + ".")
+            } // end IF newContact
+          } // end ELSE (not an update, need to add new contact in gmail)
+        } // end ELSE (contact is not deleted in sheet, needs to be added or updated in gmail)
+      } // end IF (contact update date/time in sheet indicates a change due for this account)
+
+      // if function has been running longer than allowed, return incomplete and run this funtion again later
+      if (! checkScriptRuntime()) {
+        Logger.log("Spreadsheet to Contacts exceeded maxRunTime, returning to main.");
+        return(i); //returning the value of "i" tells the parent function we're not done and it needs to call this again.
+      } // end IF checkScriptRunTime
+    } // end TRY at top of FOR loop
+    catch (e) {
+      // an error has occurred somewhere in the loop going thru updates in Main sheet.
+      // since there's a nested TRY-catch around the People api calls, this one is likely just a glitch with the Sheets api. 
+      // generally it's ok to restart Spreadsheet to Contacts and go on. 
+      Logger.log ("Encountered an error in the FOR loop in SpreadsheetToContacts. Continuing the FOR loop. Error msg: " + e);
+    } // end catch
+  }// end FOR contact rows in Main sheet 
+  showElapsedTime();
+  Logger.log("End fn SpreadsheetToContacts.");
+  return ("complete"); 
+}
