@@ -1,0 +1,199 @@
+/* get updates from this gmail account's Contacts
+  write updates to the temporary Sync Account tab in the sync file
+  (a later function, Updates Merge Into Main, will merge the updates from the sync account tab to the Main tab)
+
+  Flow:
+  - get synctoken from user properties. There should always be a synctoken. (If not, then what?)
+  - get a batch of contacts from People api, using the syncToken so we only get updates, not "all"
+  - write out the updated contacts to the sync account tab in sync file. 
+  - if there is another page of results, save PageToken (do not update synctoken), and trigger another run of this function.
+  - if there is not another page of results, then delete pageToken, get nextSynctoken and save it, and trigger UpdatesMergeToMain
+*/
+
+function getUpdatedContacts() {
+  Logger.log("Fn getUpdatedContacts");  
+  // from Declarations/Initilization: myUserProperties (object), testMode (boolean), syncFileSpreadsheet (file), pageSize (test or prod)...
+  
+  if(isMaintenanceRunning){
+    Logger.log("DailyMaintenance function is running. Set a trigger to try this again in a few minutes.");
+    createTriggerSoon("getUpdatedContacts",timeBetweenFunctions);
+    return;
+  }
+
+  if(! initialization()){
+    Logger.log("Initialization returned false. Setting trigger to try this function again in 5 mins.");
+    createTriggerSoon("getUpdatedContacts",timeBetweenFunctions);
+    return;
+  }
+  
+  showElapsedTime();
+  deleteAllTriggers();
+  
+  var getUpdatedContactsPageSize;
+  if(testMode) {getUpdatedContactsPageSize = 10} else {getUpdatedContactsPageSize = 100}
+
+  var tempSyncToken = myUserProperties.syncToken;
+  var tempPageToken = myUserProperties.pageToken;
+  // var isCompleted = false;
+  var connections = {};
+
+  if(typeof tempSyncToken !== 'undefined' && tempSyncToken !== null && tempSyncToken.trim().length >0) {
+    // get updated contacts using People api
+    // write them to the sync account tab
+    // get pageToken and nextSyncToken, save them to the temp_ variables and then to Userproperties for next trigger
+
+    var updatedContactsArray = new Array();
+    var appendArray = new Array();
+    var n = 0;
+
+    try {
+      Logger.log("    Calling People API.");
+      connections = People.People.Connections.list('people/me', {
+        pageToken: tempPageToken,
+        syncToken: tempSyncToken,
+        requestSyncToken: true, // added this 8/20/2025...
+        pageSize: getUpdatedContactsPageSize,
+        personFields: masterPersonFields,
+        sources: ["READ_SOURCE_TYPE_CONTACT"]
+      });
+      Logger.log ("     Updated connections fetched: " + connections.totalPeople + " records.");
+    } // end of TRY to get connections
+    catch (e) {
+      if (e.message.indexOf("Sync token is expired.")>-1) {
+        Logger.log("    API says syncToken expired. Calling generateNewSyncToken, then run GetUpdated again.");
+        createTriggerSoon("generateNewSyncToken",1);
+        return;
+      } 
+      else {
+        Logger.log("Error thrown by People api call: " + e);
+        MailApp.sendEmail({
+          to: statusEmail,
+          subject: "getUpdatedContacts fetch error.",
+          htmlBody: "There was an error while fetching updated contacts. \nError message:\n\n" + e  + "\n\nScript is here: https://script.google.com/home/projects/1GDUMSvG7_Xk8oT_NmGCUAJNgArOvX3PjmzHtQlLRXjxvvT5sQTL-9ugN/edit"
+        }) // end sendmail
+      } // end ELSE
+      // unhandled error in API call. Set trigger and try this again
+      Logger.log("Error type isn't handled by code. Setting trigger to try getUpdatedContacts again in 1 min.");
+      createTriggerSoon("getUpdatedContacts",1);
+      return;
+      // isCompleted = false;
+    }  // end of Catch(error) for Connections api call
+    
+    if(connections.connections){
+      // if there are  no updated contacts, then connections.connections (a list) will be Undefined.
+      connections.connections.forEach(function (person) {
+        try {
+        var contactArray = [person.addresses, person.biographies, person.birthdays, person.calendarUrls, person.clientData, person.emailAddresses, person.events, person.externalIds, person.genders, person.imClients, person.interests, person.locales, person.locations, person.memberships, person.metadata, person.miscKeywords, person.names, person.nicknames, person.occupations, person.organizations, person.phoneNumbers, person.relations, person.sipAddresses, person.urls, person.userDefined];
+
+        contactArray = RemoveIDandStringify(contactArray);
+
+        // add Contact Groups to array to be saved in spreadsheet
+        var contactGroups = [];
+        try {
+          for (var i = 0; i < person.memberships.length; i++) {
+            for (var j = 0; j < contactGroupsList.length; j++) {
+              if (person.memberships[i].contactGroupMembership.contactGroupResourceName == contactGroupsList[j][1]) {
+                contactGroups[i] = contactGroupsList[j][0]
+              } // end IF
+            } // end for j
+          } // end For i
+        } // end of try block
+        catch (e) {
+          Logger.log("    For contact " + person.resourceName + " there are no group Memberships. This is normal for a deleted contact. Error was: " + e);
+        } // end catch
+        contactArray[13] = contactGroups.join(",") // 14th column is where memberships are; will need to be changed if script updated
+        appendArray = contactArray.concat(person.resourceName);
+        updatedContactsArray[n] = appendArray;
+        n++;
+        } // end of TRY looping through Connections
+        catch (e) { 
+          // There's some kind of problem reading the changes for one contact. 
+          Logger.log("Looping through updated contacts. Had a problem with contact ID " + person.resourceName + ". Continuing loop. Error was: " + e);
+          MailApp.sendEmail({
+              to: statusEmail,
+              subject: "Contacts sync error with contact: " + person.resourceName,
+              htmlBody: "In getUpdatedContacts, looping through updated contacts. Had a problem with contact ID " + person.resourceName + ". Continuing loop. Changes to this contact will not be synced to Main sheet. Error was: " + e + "\n\nScript is here: https://script.google.com/home/projects/1GDUMSvG7_Xk8oT_NmGCUAJNgArOvX3PjmzHtQlLRXjxvvT5sQTL-9ugN "  
+            })
+        } // end Catch for looping thru updated Contacts into array.
+      }) // end of FOR EACH contact in Connections 
+
+      Logger.log ("     End of Connections loop. Pagetoken: <" + tempPageToken + "> should be Undefined in last loop."); // HERE this pagetoken message is out of place.
+
+    } // end IF connections.connections 
+    else {
+      Logger.log("    API returned no updated connections");
+    } // end ELSE
+
+    showElapsedTime();
+
+    if (updatedContactsArray.length > 0) {
+      Logger.log("     " + updatedContactsArray.length + " updates retrieved from this account, adding to sync account tab.");
+      try {
+        syncAccountSheet.getRange(syncAccountSheet.getLastRow() + 1, 1, updatedContactsArray.length, appendArray.length).setValues(updatedContactsArray);
+        Logger.log("      ...finished adding to the sync account tab in spreadsheet.");
+        // isCompleted = true; // HERE do I need this?
+        // tempPageToken = connections.nextPageToken;
+        // tempSyncToken = connections.nextSyncToken; // don't update this til we get thru all pages.
+
+      } // end TRY
+      catch (e) {
+        throw ("Failed to insert Updated Contacts into sync account tab. Not updating synctoken or pagetoken. OK to trigger the function again. Error msg: " +e);
+        // HERE set trigger to run Get Updated Contacts again, when I trust this.
+      } // end CATCH (spreadsheet entry failed)
+    } // end IF updatedcontactsArray >0
+    else {Logger.log("    No new updates to add to sync account tab.")}
+    showElapsedTime();
+  } // end IF synctoken is present
+  else { 
+    // synctoken missing, this is bad, should never be missing. 
+    createTriggerSoon("generateNewSyncToken",1);
+    MailApp.sendEmail({
+        to: statusEmail,
+        subject: "Synctoken missing in GetUpdatedContacts.",
+        htmlBody: "Synctoken wasn't found in UserProperties. Setting trigger to run generateNewSyncToken, and then run GetUpdated again.\nScript is here: https://script.google.com/home/projects/1GDUMSvG7_Xk8oT_NmGCUAJNgArOvX3PjmzHtQlLRXjxvvT5sQTL-9ugN "  
+      })
+
+    throw("Synctoken from user properties <" + tempSyncToken + "> is invalid. This shouldn't happen. Setting trigger to run GetFreshSyncToken, and then run GetUpdatdContacts again.");
+
+  } // end ELSE (no synctoken was found when starting Get Updated Contacts.)
+
+  if(connections.nextSyncToken){ // IMPORTANT: see footnote.
+    Logger.log("    nextSyncToken is present, all updates have been read.");
+    if (connections.nextSyncToken == tempSyncToken) {
+      Logger.log ("   nextSynctoken is same as previous. Last updated on " + myUserProperties.syncToken_updated);
+      // nextSynctoken is unchanged, so no updates were found in my Contacts.
+      // if this persists for 7 days the synctoken will expire.
+      // so I want to check how old it is, and before 7 days, generate a new synctoken.
+      var syncTokenLastUpdate = myUserProperties.syncToken_updated;
+      var isTokenOld = testSyncTokenDate(syncTokenLastUpdate);
+      if (isTokenOld) {
+        Logger.log("Sync Token is older than allowed number of days. Setting trigger to generate new token, then run Get Updated again.");
+        createTriggerSoon("generateNewSyncToken",1);
+        return;
+      } // end IF checking age of synctoken
+    }
+    else {
+      tempSyncToken = connections.nextSyncToken;
+      Logger.log("    New synctoken stored for next time: <" + tempSyncToken + ">");
+      setUserProperties({"syncToken":tempSyncToken,"pageToken":null});
+    }
+    Logger.log("    Setting trigger to run updatesMerge in 1 min.");
+    deleteAllTriggers();
+    createTriggerSoon("updatesMerge",1);
+  } // end IF
+  else {
+    Logger.log("    More pages of updates exist. Saving pagetoken <" + connections.nextPageToken + ">. Setting trigger to run GetUpdatedContacts again in 1 min.");
+    var tempUserProperties = {"syncToken":connections.nextSyncToken,"pageToken":connections.nextPageToken};
+    setUserProperties(tempUserProperties);
+    // set trigger to run Get Updated Contacts again, unless it's finished.
+    deleteAllTriggers();
+    createTriggerSoon("getUpdatedContacts",1);
+  } // end ELSE
+
+  Logger.log ("End of getUpdatedContacts.");
+} // end fn getUpdatedContacts
+
+/*
+Footnote:
+The API can return the same value in nextSyncToken that you started with if there have been no changes to the data since your last sync. In this scenario, when you perform an incremental sync using the previous token and nothing has changed, the new nextSyncToken in the response will be identical to the one you sent in your request. This behavior means you are fully caught up and there have been no modifications, additions, or deletions to synchronize.
+*/
