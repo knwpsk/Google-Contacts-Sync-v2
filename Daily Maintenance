@@ -55,7 +55,7 @@ function dailyMaintenance() {
       MailApp.sendEmail({
         to: statusEmail,
         subject: "Stale Contact Data, script may be failing.",
-        htmlBody: "In sync account " + i + " the latest Contact change timestamp in the main sheet is " + latestUpdate + ", " + dateDiff + " days ago. \nYou may need to check for script failures.\nScript is here:\n https://script.google.com/home/projects/1GDUMSvG7_Xk8oT_NmGCUAJNgArOvX3PjmzHtQlLRXjxvvT5sQTL-9ugN/edit"
+        htmlBody: "In sync account " + i + " the latest Contact change timestamp in the main sheet is " + latestUpdate + ", " + dateDiff + " days ago. \nYou may need to check for script failures.\nScript is here:\n" + scriptLocation
       })
     } // end IF dateDiff>3 days
   } // end FOR
