@@ -69,7 +69,7 @@ function getUpdatedContacts() {
         MailApp.sendEmail({
           to: statusEmail,
           subject: "getUpdatedContacts fetch error.",
-          htmlBody: "There was an error while fetching updated contacts. \nError message:\n\n" + e  + "\n\nScript is here: https://script.google.com/home/projects/1GDUMSvG7_Xk8oT_NmGCUAJNgArOvX3PjmzHtQlLRXjxvvT5sQTL-9ugN/edit"
+          htmlBody: "There was an error while fetching updated contacts. \nError message:\n\n" + e  + "\n\nScript is here: " + scriptLocation
         }) // end sendmail
       } // end ELSE
       // unhandled error in API call. Set trigger and try this again
@@ -112,7 +112,7 @@ function getUpdatedContacts() {
           MailApp.sendEmail({
               to: statusEmail,
               subject: "Contacts sync error with contact: " + person.resourceName,
-              htmlBody: "In getUpdatedContacts, looping through updated contacts. Had a problem with contact ID " + person.resourceName + ". Continuing loop. Changes to this contact will not be synced to Main sheet. Error was: " + e + "\n\nScript is here: https://script.google.com/home/projects/1GDUMSvG7_Xk8oT_NmGCUAJNgArOvX3PjmzHtQlLRXjxvvT5sQTL-9ugN "  
+              htmlBody: "In getUpdatedContacts, looping through updated contacts. Had a problem with contact ID " + person.resourceName + ". Continuing loop. Changes to this contact will not be synced to Main sheet. Error was: " + e + "\n\nScript is here: " + scriptLocation
             })
         } // end Catch for looping thru updated Contacts into array.
       }) // end of FOR EACH contact in Connections 
@@ -150,7 +150,7 @@ function getUpdatedContacts() {
     MailApp.sendEmail({
         to: statusEmail,
         subject: "Synctoken missing in GetUpdatedContacts.",
-        htmlBody: "Synctoken wasn't found in UserProperties. Setting trigger to run generateNewSyncToken, and then run GetUpdated again.\nScript is here: https://script.google.com/home/projects/1GDUMSvG7_Xk8oT_NmGCUAJNgArOvX3PjmzHtQlLRXjxvvT5sQTL-9ugN "  
+        htmlBody: "Synctoken wasn't found in UserProperties. Setting trigger to run generateNewSyncToken, and then run GetUpdated again.\nScript is here: " + scriptLocation  
       })
 
     throw("Synctoken from user properties <" + tempSyncToken + "> is invalid. This shouldn't happen. Setting trigger to run GetFreshSyncToken, and then run GetUpdatdContacts again.");
