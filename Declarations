@@ -12,6 +12,7 @@ else {
   // const pageSize = 500;
 }
 
+const scriptLocation = "https://script.google.com/home/projects/INSERT YOUR SCRIPT ID HERE";
 const timeBetweenFunctions = 2; // minutes between triggers for sequential functions
 const maxRunTime = 330; // seconds; Max allowed by GAS is 360 seconds in free accounts
 const syncAccounts = ['USER1@gmail.com', 'USER2@gmail.com'];
