@@ -36,7 +36,7 @@ function generateNewSyncToken() {
       MailApp.sendEmail({
         to: statusEmail,
         subject: "Error in GenerateNewSynctoken.",
-        htmlBody: "There was an error while generating a new synctoken for user: " + currUser + ". You must manually restart sync. \nError message: " + e  + "\n\nScript is here: https://script.google.com/home/projects/1GDUMSvG7_Xk8oT_NmGCUAJNgArOvX3PjmzHtQlLRXjxvvT5sQTL-9ugN/edit"
+        htmlBody: "There was an error while generating a new synctoken for user: " + currUser + ". You must manually restart sync. \nError message: " + e  + "\n\nScript is here: " + scriptLocation
       })
       deleteAllTriggers();
       Throw ("Error in People API call. Sent warning email. Error msg: " +e);
@@ -65,7 +65,7 @@ else {
       MailApp.sendEmail({
         to: statusEmail,
         subject: "Error in GenerateNewSynctoken.",
-        htmlBody: "Failed to get a new syncToken for user: " + currUser + ". You must manually restart. \n\nScript is here: https://script.google.com/home/projects/1GDUMSvG7_Xk8oT_NmGCUAJNgArOvX3PjmzHtQlLRXjxvvT5sQTL-9ugN/edit"
+        htmlBody: "Failed to get a new syncToken for user: " + currUser + ". You must manually restart. \n\nScript is here: " + scriptLocation
       });
   deleteAllTriggers();
   throw("Failed to get a new synctoken.");
