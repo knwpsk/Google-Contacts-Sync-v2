@@ -74,7 +74,7 @@ function updatesMerge() {
             MailApp.sendEmail({
               to: statusEmail,
               subject: "Contacts Sync error - failed to find *deleted* sheet.",
-              htmlBody: "Failed to retrieve *deleted* sheet in sync file. Check that it exists, or create it, and then restart function Updates Merge Into Main.\nScript is here: https://script.google.com/home/projects/1GDUMSvG7_Xk8oT_NmGCUAJNgArOvX3PjmzHtQlLRXjxvvT5sQTL-9ugN. \nSheets file is here: https://docs.google.com/spreadsheets/d/" + syncFileSpreadSheetID
+              htmlBody: "Failed to retrieve *deleted* sheet in sync file. Check that it exists, or create it, and then restart function Updates Merge Into Main.\nScript is here: + scriptLocation + "\nSheets file is here: https://docs.google.com/spreadsheets/d/" + syncFileSpreadSheetID
             })
             throw("Failed to retrieve Deleted sheet.");
           } // end catch
