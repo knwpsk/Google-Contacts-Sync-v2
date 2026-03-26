@@ -47,7 +47,7 @@ function dailyMaintenance() {
   Logger.log("   Checking that all sync accounts are still running scripts ok...");
   var currentDate = new Date();
   for (var i = 0; i<syncAccounts.length; i++){ // for each sync Account (user)
-    var latestUpdate = getLastUpdateForAccount(0);
+    var latestUpdate = getLastUpdateForAccount(i); // 3/36/2026 chanaged (0) to (i) thanks to @acmor debugging
     // var dateDiff = Math.floor((currentDate - latestUpdate)/60/60/24/1000) ; // this rounds it to an integer; re-enable this after testing.
     var dateDiff = (currentDate - latestUpdate)/60/60/24/1000 ;
     Logger.log ("Last update datetime for sync account " + i + " was: " + latestUpdate);
