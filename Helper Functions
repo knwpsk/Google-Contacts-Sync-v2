@@ -48,16 +48,22 @@ function initialization(){
 
 function getContactGroupsList() {
   Logger.log("      fn getContactGroupsList")
-  var contactGroupsListJSON = People.ContactGroups.list({
-    "groupFields": "name",
-    "pageSize": 1000 // no more than 1000 contact groups
-  })
-  var contactGroupsList = []
-  contactGroupsListJSON.contactGroups.forEach(function (contactGroups) {
-    contactGroupsList.push([contactGroups.name, contactGroups.resourceName])
-  });
-  return (contactGroupsList)
+  try {
+    var contactGroupsListJSON = People.ContactGroups.list({
+      "groupFields": "name",
+      "pageSize": 1000 // no more than 1000 contact groups
+    })
+    var contactGroupsList = []
+    contactGroupsListJSON.contactGroups.forEach(function (contactGroups) {
+      contactGroupsList.push([contactGroups.name, contactGroups.resourceName])
+    });
+    return (contactGroupsList)
+  } // end try
+  catch(e){
+    throw ("Error in Initialization > getContactGroupsList, likely a GAS environment failiure. You should check that a process needs to be started manually. Error was: " + e);
+  } // end catch
 } // end fun getContactGroupsList
+
 
 function createTriggerSoon(functionName,numberOfMinutes) {
   var now = new Date();
