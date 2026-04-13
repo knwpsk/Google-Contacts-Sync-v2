@@ -64,15 +64,25 @@ function getContactGroupsList() {
   } // end catch
 } // end fun getContactGroupsList
 
-
 function createTriggerSoon(functionName,numberOfMinutes) {
   var now = new Date();
   var oneMinuteFromNow = new Date(now.getTime() + numberOfMinutes * 60 * 1000); // add 1 minute
-  ScriptApp.newTrigger(functionName)
-    .timeBased()
-    .at(oneMinuteFromNow)
-    .create();
-  Logger.log("      createTriggerSoon finished. Function:  " + functionName + " set for " + numberOfMinutes + " minutes.");
+
+  try{
+    ScriptApp.newTrigger(functionName)
+      .timeBased()
+      .at(oneMinuteFromNow)
+      .create();
+    Logger.log("      createTriggerSoon finished. Function:  " + functionName + " set for " + numberOfMinutes + " minutes.");
+  } // end TRY
+  catch(e){
+    Logger.log("      createTriggerSoon failed.");
+    MailApp.sendEmail({
+      to: statusEmail,
+      subject: "Contact sync script failure",
+      htmlBody: "Failure during createTriggerSoon. Likely a service call issue. \n\nError was: " + e + "\nStack was: " + e.stack + "\n\nMay need to run next fn manually to restart loop. Script is here: "+ thisScriptAddress
+    });
+  } // end CATCH
 }
 
 function getUserProperties () {
@@ -195,29 +205,43 @@ function deleteAllTriggers() {
   // note this only retrieves and deletes triggers for the user running the script.
   // google API does not give one user access to other users' triggers, not even the owner of the script projectc.
   Logger.log ("     deleteAllTriggers");
-  var triggers = ScriptApp.getProjectTriggers();
-  for (var i in triggers) {
-    if (triggers[i].getHandlerFunction() != "dailyMaintenance") {
-      ScriptApp.deleteTrigger(triggers[i]); // HERE I should handle errors, although I've only ever had this fail once "service unavailable"
+  try {
+    var triggers = ScriptApp.getProjectTriggers();
+    for (var i in triggers) {
+      if (triggers[i].getHandlerFunction() != "dailyMaintenance") {
+        ScriptApp.deleteTrigger(triggers[i]); // HERE I should handle errors, although I've only ever had this fail once "service unavailable"
+      }
     }
-  }
+  } // end TRY
+  catch (e) {
+    console.error("Failure in deleting triggers. Error was: " + e + e.stack);
+    MailApp.sendEmail({
+      to: statusEmail,
+      subject: "Contact sync script failure",
+      htmlBody: "Failure during deleteAllTriggers. Likely a service call issue. \n\nError was: " + e + "\nStack was: " + e.stack + "\n\nMay need to run getUpdatedContacts to restart loop. Script is here: "+ thisScriptAddress
+    });
+  } // end CATCH
 } // end fn deleteAllTriggers 
 
-function createDailyMaintenanceTrigger() {
-  ScriptApp.newTrigger("dailyMaintenance")
-    .timeBased()
-    .atHour(3)
-    .everyDays(1)  // maintenance will run every 24 hours
-    .create();
-} // end fn createDailyMaintenanceTrigger
 
-// function createSyncContactsTrigger() {
-//   ScriptApp.newTrigger("syncContacts")
-//     .timeBased()
-//     // .everyMinutes(10) // contacts will be synced every 10 minutes
-//     .everyMinutes(30) // contacts will be synced every 30 minutes; value must be 1, 5, 10, 30
-//     .create();
-// } // end fn createSyncContactsTrigger **********************************************************************************************************
+function createDailyMaintenanceTrigger() {
+  console.log("     start of createDailyMaintenanceTrigger()");
+  try{
+    ScriptApp.newTrigger("dailyMaintenance")
+      .timeBased()
+      .atHour(3)
+      .everyDays(1)  // maintenance will run every 24 hours
+      .create();
+  } // end TRY
+  catch(e){
+    console.log("     Failed to create trigger in createDailyMaintenanceTrigger.")
+    MailApp.sendEmail({
+      to: statusEmail,
+      subject: "Contact sync script failure",
+      htmlBody: "Failure during createDailyMaintenanceTrigger. Likely a service issue. \n\nError was: " + e + "\nStack was: " + e.stack + "\n\nMay need to run Daily Maintenance again. Script is here: "+ thisScriptAddress
+    });
+  } // end CATCH
+} // end fn createDailyMaintenanceTrigger
 
 function checkScriptRuntime() {
   if((new (Date) - scriptStartTime) / 1000 < maxRunTime) { return true } else { return false }
