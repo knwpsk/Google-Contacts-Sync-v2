@@ -64,26 +64,63 @@ function getContactGroupsList() {
   } // end catch
 } // end fun getContactGroupsList
 
-function createTriggerSoon(functionName,numberOfMinutes) {
+function createTriggerSoon (functionName, numberofMinutes) {
   var now = new Date();
   var oneMinuteFromNow = new Date(now.getTime() + numberOfMinutes * 60 * 1000); // add 1 minute
+  var createTriggerCounter = 0;
 
-  try{
-    ScriptApp.newTrigger(functionName)
-      .timeBased()
-      .at(oneMinuteFromNow)
-      .create();
-    Logger.log("      createTriggerSoon finished. Function:  " + functionName + " set for " + numberOfMinutes + " minutes.");
-  } // end TRY
-  catch(e){
-    Logger.log("      createTriggerSoon failed.");
-    MailApp.sendEmail({
-      to: statusEmail,
-      subject: "Contact sync script failure",
-      htmlBody: "Failure during createTriggerSoon. Likely a service call issue. \n\nError was: " + e + "\nStack was: " + e.stack + "\n\nMay need to run next fn manually to restart loop. Script is here: "+ thisScriptAddress
-    });
-  } // end CATCH
-}
+  while (createTriggerCounter <3) {
+    try{
+      ScriptApp.newTrigger(functionName)
+        .timeBased()
+        .at(oneMinuteFromNow)
+        .create();
+      Logger.log("      createTriggerSoon finished. Function " + functionName + " set for " + numberOfMinutes + " minutes.");
+      return;
+    } // end TRY
+    catch(e) {
+      Logger.log("     createTriggerSoon threw an error: " + e);
+      Logger.log ("     Waiting 5 seconds before continuing.");
+      Utilities.sleep(5000);
+    } // end CATCH
+    createTriggerCounter +=1;
+  } // end WHILE
+  MailApp.sendEmail({
+    to: statusEmail,
+    subject: "Contact sync script failure",
+    htmlBody: "createTriggerSoon failed too many times. Likely a service call issue. \n\nError was: " + e + "\nStack was: " + e.stack + "\n\nMay need to run next fn manually to restart loop. Script is here: "+ thisScriptAddress
+  });
+
+} // end fn createTriggerSoon
+
+function deleteAllTriggers() {
+  var datCounter = 0;
+  while (datCounter < 3) {
+    try{
+      var triggers = ScriptApp.getProjectTriggers();
+      for (var i in triggers) {
+        if (triggers[i].getHandlerFunction() != "dailyMaintenance") {
+          ScriptApp.deleteTrigger(triggers[i]); 
+        } // end IF
+      } // end FOR
+      Logger.log("     Deleted all triggers ok. Returning.");
+      return;
+    } // end TRY
+    catch(e) {
+      Logger.log ("     deleteAllTriggers threw an error: " +e);
+      Logger.log ("     Waiting 5 seconds before continuing.");
+      Utilities.sleep(5000);
+    } // end CATCH
+    datCounter +=1;
+  } // end WHILE loop
+  Logger.log ("     deleteAllTriggers exceeded max attempts, quitting with an error email.");
+  MailApp.sendEmail({
+    to: statusEmail,
+    subject: "Contact sync script failure",
+    htmlBody: "Failure during deleteAllTriggers. Likely a service call issue. \n\nError was: " + e + "\nStack was: " + e.stack + "\n\nMay need to run getUpdatedContacts to restart loop. Script is here: "+ thisScriptAddress
+  });
+  throw("     deleteAllTriggers failed too many times. Sent email.");
+} // end fn deleteAllTriggers
 
 function getUserProperties () {
   var tempUserProperties = PropertiesService.getUserProperties();
@@ -194,6 +231,7 @@ function setScriptProperties(propertiesObject) {
 
 
 function deleteAllUserProperties() {
+  // this is a dev utility, not used by the production script
   var tempUserProperties = PropertiesService.getUserProperties();
   var displayObj = convertScriptProperties(tempUserProperties);
   Logger.log ("Current User Properties will all be deleted: ");
@@ -201,30 +239,10 @@ function deleteAllUserProperties() {
   tempUserProperties.deleteAllProperties();
 }
 
-function deleteAllTriggers() {
-  // note this only retrieves and deletes triggers for the user running the script.
-  // google API does not give one user access to other users' triggers, not even the owner of the script projectc.
-  Logger.log ("     deleteAllTriggers");
-  try {
-    var triggers = ScriptApp.getProjectTriggers();
-    for (var i in triggers) {
-      if (triggers[i].getHandlerFunction() != "dailyMaintenance") {
-        ScriptApp.deleteTrigger(triggers[i]); // HERE I should handle errors, although I've only ever had this fail once "service unavailable"
-      }
-    }
-  } // end TRY
-  catch (e) {
-    console.error("Failure in deleting triggers. Error was: " + e + e.stack);
-    MailApp.sendEmail({
-      to: statusEmail,
-      subject: "Contact sync script failure",
-      htmlBody: "Failure during deleteAllTriggers. Likely a service call issue. \n\nError was: " + e + "\nStack was: " + e.stack + "\n\nMay need to run getUpdatedContacts to restart loop. Script is here: "+ thisScriptAddress
-    });
-  } // end CATCH
-} // end fn deleteAllTriggers 
 
 
 function createDailyMaintenanceTrigger() {
+  // currently only used by MasterClientInit()
   console.log("     start of createDailyMaintenanceTrigger()");
   try{
     ScriptApp.newTrigger("dailyMaintenance")
