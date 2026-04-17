@@ -1,3 +1,14 @@
+/*
+Github for this project: https://github.com/knwpsk/Google-Contacts-Sync-v2
+
+************ FEATURES **********
+This project synchronizes google (gmail) Contacts between two or more google accounts. Is uses a shared Sheets (spreadsheet) file as the conduit to record and share changes between them. 
+The project DOES NOT DEDUPE or MERGE contacts. When you initialize it, you must start with all of your desired contacts in one Master account, and NO contacts in the other Client account(s). (If there are any contacts in the Client accounts, they will not necessarily ever get recorded to the spreadsheet or to the other accounts.)
+Once the initialization is complete, any change to any shared contact in any account will be copied to that contact in they other account(s), so they stay in sync.
+
+************ Credits ***********
+
+I stand on the shoulders of giants. 
 This repo uses the same basic construct as fleapower's original, with a lot of changes.
 Here's the original, with my appreciation!
 https://github.com/fleapower/Google-Script-Contacts-Sync
@@ -10,3 +21,46 @@ In this refactored version:
 - (Admin point: there are several code files, which made it easier for me to manage. Of course that's not necessary and one could combine them all into one file.)
 - Enhanced how the script manages the sync token and its age. Proactively renews it if the google 7-day timeout is approaching. 
 - Daily Maintenance has a check to ensure that "something" is changed recently, or warns if not. (If nothing has been changed in one of your sync accounts, it could be an indication that a process failed without warning and you need to re-trigger it to kickstart. I've been finding more often lately that some Google Apps Scripts fail not do to your code, but due to google platform issues, and these can't be trapped and handled in code.) 
+
+************ SETUP *************
+
+(need to add!)
+
+
+
+
+
+
+
+
+************ HOW IT WORKS **********
+MASTER CLIENT INIT copies all Contact info from the Master account to the Main tab of the spreadsheet. Each contact property is written to a different column, and the format in each cell is .json formatted text exactly as it is received from the People API. In the far-right columns of Main tab, the script records the unique Contact ID from the master account, and the date/time of the latest change to this contact (which is the time INIT was run, initially.)
+When MASTER CLIENT INIT is finished, then each of the Client accounts can run SYNC CLIENT INIT. This function creates each from the Main tab in the google Contacts of the Client account. As each one is created and given a unique ID in the Client account, those IDs are written to the Main tab in another far-right column, with the creation date and time. 
+The two (or more) sets of unique Client IDs create a mapping of the ID for each Contact between the Master and Client accounts. This mapping is how the project keeps Contact details in sync between the accounts, without needing to use any hueristics about the Contact.
+
+After initialization, the following functions run sequentially in a loop, in each account: GET UPDATED CONTACTS > UPDATES MERGE INTO MAIN > UPDATE CONTACTS FROM MAIN > (repeat). These are explained below.
+
+GET UPDATED CONTACTS: Calls the People API using a saved SyncToken, and retrieves all Contacts that have changed since the last API call. For each changed Contact that is retrieved, the function writes the full details of each Contact to a tab (named for the user account) in the spreadsheet. 
+
+UPDATES MERGE INTO MAIN: Takes the (changed) contact data from the account-specific tab, and compares it to the same contact in the Main tab. Updates the new data into the correct cells in the Main tab; and updates the date/time of this contact in the column for the current user.
+
+UPDATE CONTACTS FROM MAIN: Looks at the Main tab and finds all rows where another account has a date/time that is more recent than the date/time for this user account -- i.e. "someone else has updated this Contact". Copies the Contact row into an array, then into a Contact object. Updates the Contact in this user account.  ALSO finds any NEW contacts in the Main tab (where the sheet has no ID or date/time for this user account), and inserts them as new Contacts in this user account.  Most of the work is done by the fuction SPREADSHEET TO CONTACTS, which is called by UPDATE CONTACTS FROM MAIN.
+
+DAILY MAINTENANCE: This is only run by the Master account, not by any other user account. It removes deleted Contacts from the Main sheet completely, and copies them over to a Deleted sheet for historical retention (with the date/time of the deletion). Then it checks to see that each user account has updated "something, in some row" in the Main sheet at least every few days -- and if not, it sends an email to alert the Notification user that something may be wrong. (This can happen if the google apps script environment encounters an unhandled error, and no new Trigger is created to continue the function loop.)
+
+
+Notes about the use of Sync Token and Page Token in this project:
+- When we first call MASTER CLIENT INIT, we have no SyncToken nor PageToken. We are intentionally querying "all" contacts in the master account.
+- MCI gets a page of Contacts and processes them, then checks to see if there is a NextPageToken or a NextSyncToken. If there is a NextPageToken, we know there are more Contacts to be queried. MCI saves the NextPageToken to the script UserProperties, and creates a trigger to run the MCI function again soon.
+- When MCI gets to the last page of Contacts, it will find there is now no value for NextPageToken; but there is now a value for NextSyncToken. In the script UserProperties, it deletes the PageToken and saves the new SyncToken. Then it schedules a trigger for GET UPDATED CONTACTS, which begins the "production" synchronization loop in the master account.
+
+Similarly:
+- When the Client account runs SYNC CLIENT INIT the first time, it proceeds iteratively, reading all of the Contacts from the Main sheet in batches, and creating them in google Contacts for this user account. If it runs out of time and there are still more new rows in Main sheet, it schedules a trigger to run itself again.
+- When all rows are finished, then SCI knows it is finished initializing. It calls GENERATE NEW SYNCTOKEN, intentionally querying "all" of the contacts it just created in this user account. It rapidly pages through all of them (taking no action, because they're all new), but fast-forwards to the end, and gets a SyncToken. It saves this value to its script UserProperties (which are different for each user account using this project). Then it schedules a trigger to run GET UPDATED CONTACTS, which begins the "production" synchronization loop in this user account.
+
+The API can return the same value in nextSyncToken that you started with, if there have been no changes to the data since your last sync. In this scenario, when you perform an incremental sync using the previous token and nothing has changed, the new nextSyncToken in the response will be identical to the one you sent in your request. This behavior means you are fully caught up and there have been no modifications, additions, or deletions to synchronize.
+Google's Sync Tokens are good for seven days; and we don't want it to get stale. During GET UPDATED CONTACTS, we check the state of the SyncToken. So if GUC gets no new Contact changes, and finds that the saved syncToken is nearing the 7 day expiry, it intentionally calls GENERATE NEW SYNCTOKEN and gets a new one.
+
+
+
+*/
