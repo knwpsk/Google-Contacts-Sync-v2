@@ -24,12 +24,22 @@ In this refactored version:
 
 ************ SETUP *************
 
-(need to add!)
+(Added 5/14/2026)(Comments welcome - raise an Issue ticket please!)
+Make a backup (export to file) of all of your Contacts in each gmail account! You were warned!
+Create a new Google Apps Script project. Copy each of the files in this github project into your GAS project. (They can all be in one GAS file/tab if you prefer, but it will then be messier to maintain if we make changes in github.)
+In your Main gmail account, create a new spreadsheet in Google Drive. It doesn’t matter which folder you put it in (but I recommend making yourself a Contacts folder, and keep your backup/export in there too).
+Share the spreadsheet file with your other gmail accounts that will be in the sync group. All of them need Edit (Write) access. 
+Copy the ID of your spreadsheet. The URL for your spreadsheet looks like this: "https://docs.google.com/spreadsheets/d/############################################/edit#gid=0."  Copy the ######## part, that’s the ID. In your new GAS project > Declarations file, paste the ID into the variable syncFileSpreadSheetID.  
+Also in Declarations, in the syncAccounts array, add the email address of each gmail account you plan to sync. Put the Main account first.
+Also in Declarations, update the notifyAddress. This is the account that will get an alert if something fails.
+Also in Declarations, copy the address of your new GAS project, and paste it into the scriptLocation variable. When you get an email alert, the alert will contain a link to your project so you can go right to it for troubleshooting.
+Share your GAS project with your other gmail accounts. (If you’re syncing your work account, you may find that your company blocks running GAS scripts from external owners. In that case you can make a copy of the project in your work account and manually update all of the Declarations there. But make sure you use the same spreadsheet ID)
+ In your GAS project, you will need to enable several Google APIs. The first time you run any functions in the project, it will pop up asking you to approve them. This includes the People API (to access your contacts), and the Drive or Sheets API (to read/write the shared spreadsheet).
 
-
-
-
-
+Now start the sync:
+In a browser where you’re logged in to your Main gmail account, in your GAS project, run the MasterClientInit() function. It will take a while, depending on how many contacts you have. If it takes more than a few minutes, it will automatically stop and schedule a new trigger to restart itself a minute later. When it finishes, it will email you saying so. Wait til that happens.
+In a different browser session, where you’re logged in as one of your other gmail accounts, run the SyncClientInit() function. Same story, let it go til it finishes and emails you, possibly over several iterations.
+At this point you should have all of your contacts in both accounts. If you had the same person in both accounts before, you may need to use Google’s de-duplication function to clean them up. (When you do that in one account, this script will sync the changes to the other account.)
 
 
 
