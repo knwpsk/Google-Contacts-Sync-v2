@@ -1,6 +1,11 @@
 /*
 Github for this project: https://github.com/knwpsk/Google-Contacts-Sync-v2
 
+WARNING: 
+This project is Beta-quality, at best. Use it at your own risk. 
+You definitely need at least minimal programming skills (Javascript, and the Google Apps Script environment) to use this with any confidence.
+Comments and suggestions are welcome.
+
 ************ FEATURES **********
 This project synchronizes google (gmail) Contacts between two or more google accounts. Is uses a shared Sheets (spreadsheet) file as the conduit to record and share changes between them. 
 The project DOES NOT DEDUPE or MERGE contacts. When you initialize it, you must start with all of your desired contacts in one Master account, and NO contacts in the other Client account(s). (If there are any contacts in the Client accounts, they will not necessarily ever get recorded to the spreadsheet or to the other accounts.)
