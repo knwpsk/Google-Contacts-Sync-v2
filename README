@@ -46,7 +46,11 @@ In a browser where you’re logged in to your Main gmail account, in your GAS pr
 In a different browser session, where you’re logged in as one of your other gmail accounts, run the SyncClientInit() function. Same story, let it go til it finishes and emails you, possibly over several iterations.
 At this point you should have all of your contacts in both accounts. If you had the same person in both accounts before, you may need to use Google’s de-duplication function to clean them up. (When you do that in one account, this script will sync the changes to the other account.)
 
-
+************ KNOWN ISSUES **********
+One persistent problem with this architecture (where each part of the process is triggered in sequence by the previous part) is that sometimes Google's environment flakes out. If the script crashes and the error isn't handled in code (because the environment crashed), then the trigger for the next function doesn't get set, and the whole process halts indefinitely.
+To address this, I set a check in DailyMaintenance to see if there's been at least one update in every account during the last 7 days -- and if not, warn the owner.
+I considered another approach but gave up on it -- where each function (for each user) would update a date/time value in ScriptProperties, and then the other users could check to see if those were getting updated reguarly. But I ran into a problem with this: the script properties are only accessible to all users if all users are using the *same copy* of the project. And that's not always going to be true. (In my case, my company security policy does not allow you to execute a script hosted externally, so I have to maintain a *copy* of the script in my work account.)
+If someone has another idea for this issue, speak up.
 
 ************ HOW IT WORKS **********
 MASTER CLIENT INIT copies all Contact info from the Master account to the Main tab of the spreadsheet. Each contact property is written to a different column, and the format in each cell is .json formatted text exactly as it is received from the People API. In the far-right columns of Main tab, the script records the unique Contact ID from the master account, and the date/time of the latest change to this contact (which is the time INIT was run, initially.)
