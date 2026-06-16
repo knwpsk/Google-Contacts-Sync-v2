@@ -1,3 +1,5 @@
+
+
 function getLastUpdateForAccount(paramUserNum){
   // find the latest update date/time in the Main sheet, for all contact rows, for one sync account
   var lastRow = mainSheet.getLastRow();
@@ -47,22 +49,37 @@ function initialization(){
 } // end fn Initialization
 
 function getContactGroupsList() {
-  Logger.log("      fn getContactGroupsList")
-  try {
-    var contactGroupsListJSON = People.ContactGroups.list({
-      "groupFields": "name",
-      "pageSize": 1000 // no more than 1000 contact groups
-    })
-    var contactGroupsList = []
-    contactGroupsListJSON.contactGroups.forEach(function (contactGroups) {
-      contactGroupsList.push([contactGroups.name, contactGroups.resourceName])
-    });
-    return (contactGroupsList)
-  } // end try
-  catch(e){
-    throw ("Error in Initialization > getContactGroupsList, likely a GAS environment failiure. You should check that a process needs to be started manually. Error was: " + e);
-  } // end catch
-} // end fun getContactGroupsList
+  Logger.log("     fn getContactGroupsList2");
+  var getGroupsCounter = 0;
+  while (getGroupsCounter <3){
+    try {
+      var contactGroupsListJSON = People.ContactGroups.list({
+        "groupFields": "name",
+        "pageSize": 1000 // no more than 1000 contact groups
+      })
+      var contactGroupsList = []
+      contactGroupsListJSON.contactGroups.forEach(function (contactGroups) {
+        contactGroupsList.push([contactGroups.name, contactGroups.resourceName])
+      });
+      Logger.log ("    Got contact groups.");
+      return (contactGroupsList)
+    } // end try
+    catch(e){
+      Logger.log("Failed to get contacts groups. Will pause for a few secs and retry up to 3x. Error was: " +e);
+      Utilities.sleep(5000);
+    } // end catch
+  } // end While getGroupsCounter
+
+  // if the call was successfull this function would have exited earlier.
+  MailApp.sendEmail({
+    to: statusEmail,
+    subject: "Contact sync script failure",
+    htmlBody: "getContactGroups failed too many times. Likely a service call issue. \n\nError was: " + e + "\nStack was: " + e.stack + "\n\nMay need to run next fn manually to restart loop. Script is here: "+ thisScriptAddress
+  });
+
+  throw ("Error in Initialization > getContactGroupsList, likely a GAS environment failure. You should check that a process needs to be started manually. Error was: " + e);
+
+} // end fn getContactGroupsList
 
 function createTriggerSoon (functionName, numberOfMinutes) {
   Logger.log("     Starting fn createTriggerSoon in Helper Functions.");
@@ -95,7 +112,10 @@ function createTriggerSoon (functionName, numberOfMinutes) {
 } // end fn createTriggerSoon
 
 function deleteAllTriggers() {
+  Logger.log("  Start fn deleteAllTriggers");
   var datCounter = 0;
+
+  // try this up to N times, since Trigger service sometimes fails.
   while (datCounter < 3) {
     try{
       var triggers = ScriptApp.getProjectTriggers();
@@ -104,7 +124,7 @@ function deleteAllTriggers() {
           ScriptApp.deleteTrigger(triggers[i]); 
         } // end IF
       } // end FOR
-      Logger.log("     Deleted all triggers ok. Returning.");
+      Logger.log("  Deleted all triggers ok. Returning.");
       return;
     } // end TRY
     catch(e) {
@@ -114,28 +134,29 @@ function deleteAllTriggers() {
     } // end CATCH
     datCounter +=1;
   } // end WHILE loop
+
   Logger.log ("     deleteAllTriggers exceeded max attempts, quitting with an error email.");
   MailApp.sendEmail({
     to: statusEmail,
     subject: "Contact sync script failure",
     htmlBody: "Failure during deleteAllTriggers. Likely a service call issue. \n\nError was: " + e + "\nStack was: " + e.stack + "\n\nMay need to run getUpdatedContacts to restart loop. Script is here: "+ thisScriptAddress
   });
-  throw("     deleteAllTriggers failed too many times. Sent email.");
+  throw("!!! deleteAllTriggers failed too many times. Sent email.");
 } // end fn deleteAllTriggers
 
 function getUserProperties () {
+  Logger.log("      function: User properties: ");
   var tempUserProperties = PropertiesService.getUserProperties();
   newUserProperties = convertScriptProperties(tempUserProperties);
-  Logger.log("      User properties: ");
-  Logger.log(newUserProperties);
+  Logger.log("      got User properties: ");
   return newUserProperties;
 } // end fn getUserProperties
 
 function getScriptProperties() {
+  Logger.log("      function: Script properties: ");
   var tempScriptProperties = PropertiesService.getScriptProperties();
   var newScriptProperties = convertScriptProperties(tempScriptProperties);
-  Logger.log("      Script properties: ");
-  Logger.log(newScriptProperties);
+  Logger.log("      got Script properties: ");
   return newScriptProperties;
 } // end fn getScriptProperties
 
